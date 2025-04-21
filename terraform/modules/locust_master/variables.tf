@@ -1,0 +1,48 @@
+/**
+ * Locustマスターモジュールの変数定義
+ */
+
+variable "general_name" {
+  description = "リソースの名前などに使う文字列"
+  type        = string
+}
+
+variable "vpc_id" {
+  description = "VPC ID"
+  type        = string
+}
+
+variable "public_subnet_ids" {
+  description = "パブリックサブネットのID"
+  type        = list(string)
+}
+
+variable "ecs_cluster_id" {
+  description = "ECSクラスターのID"
+  type        = string
+}
+
+variable "fargate_cpu" {
+  description = "コンテナのCPU (256=.25vCPU)"
+  type        = number
+}
+
+variable "fargate_memory" {
+  description = "コンテナに割り当てるメモリ (MB)"
+  type        = number
+}
+
+variable "locust_image" {
+  description = "使用するLocustのDockerイメージ"
+  type        = string
+}
+
+variable "target_host" {
+  description = "負荷テスト対象のホスト"
+  type        = string
+}
+
+variable "locust_file_path" {
+  description = "Locustファイルのパス"
+  type        = string
+}
