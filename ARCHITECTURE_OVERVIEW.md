@@ -7,10 +7,11 @@
 このプロジェクトは、AWS ECS Fargate上にLocust負荷テスト環境と、テスト対象となるオートスケーリング可能なWebサーバーを構築します。主要なコンポーネントは以下の通りです：
 
 1. **ネットワーク基盤**：VPC、サブネット、ルートテーブル、インターネットゲートウェイ、NATゲートウェイ
-2. **ECSクラスター**：Locustマスター、ワーカー、テスト対象Webサーバーを実行するためのクラスター
-3. **Locustマスター**：WebUIを提供し、ワーカーを制御するLocustマスターノード
-4. **Locustワーカー**：実際に負荷テストを実行するワーカーノード
-5. **テスト対象Webサーバー**：オートスケーリングのテスト対象となるWebアプリケーション
+2. **コンテナレジストリ**：Amazon ECRを使用したプライベートDockerイメージレジストリ
+3. **ECSクラスター**：Locustマスター、ワーカー、テスト対象Webサーバーを実行するためのクラスター
+4. **Locustマスター**：WebUIを提供し、ワーカーを制御するLocustマスターノード
+5. **Locustワーカー**：実際に負荷テストを実行するワーカーノード
+6. **テスト対象Webサーバー**：オートスケーリングのテスト対象となるWebアプリケーション
 
 ## モジュール構成
 
@@ -27,7 +28,16 @@ Terraformコードは以下のモジュールで構成されています：
   - NATゲートウェイ (`aws_nat_gateway.main`)
   - ルートテーブル (`aws_route_table.public`, `aws_route_table.private`)
 
-### 2. ECSクラスターモジュール (`./modules/ecs_cluster`)
+### 2. ECRモジュール (`./modules/ecr`)
+
+- **目的**: プライベートコンテナレジストリとして、アプリケーションのDockerイメージを管理
+- **主要リソース**:
+  - ECRリポジトリ (`aws_ecr_repository.repositories`)
+  - ライフサイクルポリシー (`aws_ecr_lifecycle_policy.repositories`)
+  - リポジトリポリシー (`aws_ecr_repository_policy.repositories`)
+  - IAMロール (`aws_iam_role.ecr_access_role`)
+
+### 3. ECSクラスターモジュール (`./modules/ecs_cluster`)
 
 - **目的**: Locustマスター、ワーカー、テスト対象Webサーバーを実行するためのECSクラスターを作成
 - **主要リソース**:

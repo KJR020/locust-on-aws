@@ -1,6 +1,6 @@
 # AWS ECS上のLocust負荷テスト環境
 
-このリポジトリはTerraformを使用して、AWS ECS上にLocust負荷テスト環境を構築するためのコードを提供します。
+このリポジトリはTerraformを使用して、AWS ECS上にLocust負荷テスト環境を構築するためのコードを提供します。Amazon ECRによるプライベートコンテナレジストリ管理機能付きです。
 
 ## プロジェクト構造
 
@@ -12,23 +12,60 @@ locust-on-aws/
 │   │   ├── locustfile.py    # 負荷テストスクリプト
 │   │   └── requirements.txt # 依存関係
 │   └── webserver/           # テスト対象Webサーバー
-│       ├── Dockerfile       # Webサーバーのカスタムイメージ用
-│       ├── server.js        # サンプルWebアプリ（JavaScript版）
+│       ├── Dockerfile       # Webサーバーのカスタムイメージ用（TypeScript版）
 │       ├── server.ts        # サンプルWebアプリ（TypeScript版）
-│       └── package.json     # 依存関係
+│       ├── package.json     # 依存関係
+│       └── tsconfig.json    # TypeScript設定
+├── scripts/                 # 自動化スクリプト
+│   └── build-and-push-images.sh # ECRイメージビルド・プッシュスクリプト
 └── terraform/               # インフラ定義
+    └── modules/
+        ├── ecr/             # ECRリポジトリ管理
+        ├── network/         # ネットワーク関連
+        ├── ecs_cluster/     # ECSクラスター
+        ├── locust_master/   # Locustマスターノード
+        ├── locust_worker/   # Locustワーカーノード
+        └── test_webserver/  # テスト対象Webサーバー
 ```
 
 ## 構成
 
-このプロジェクトは以下のリソースを作成します：
+このプロジェクトは以下のAWSリソースを作成します：
 
-- VPC、サブネット、セキュリティグループなどのネットワークリソース
-- ECSクラスター
-- Locustマスターノード用のECSサービスとタスク定義
-- Locustワーカーノード用のECSサービスとタスク定義
-- テスト対象Webサーバー用のECSサービスとタスク定義
-- ロードバランサー（Locust WebUIとテスト対象Webサーバーへのアクセス用）
+- **ネットワーク**: VPC、サブネット、セキュリティグループ、ロードバランサー
+- **コンテナレジストリ**: Amazon ECRプライベートリポジトリ（webserver、locust用）
+- **コンテナ基盤**: ECSクラスター、Fargateタスク
+- **Locust環境**: マスターノード（WebUI）、ワーカーノード（負荷生成）
+- **テスト対象**: TypeScript Webサーバー（オートスケーリング対応）
+
+## クイックスタート
+
+### 1. 前提条件
+- AWS CLI設定済み
+- Docker Desktop/Engine稼働中
+- Terraform >= 1.5
+
+### 2. コンテナイメージのビルド・プッシュ
+```bash
+# ECRリポジトリの作成とイメージのプッシュ
+./scripts/build-and-push-images.sh
+```
+
+### 3. インフラストラクチャのデプロイ
+```bash
+cd terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+### 4. 負荷テストの実行
+```bash
+# Terraform出力からLocust WebUIのURLを取得
+terraform output locust_web_ui_url
+
+# ブラウザでLocust WebUIにアクセスして負荷テストを開始
+```
 
 ## 使用方法
 
