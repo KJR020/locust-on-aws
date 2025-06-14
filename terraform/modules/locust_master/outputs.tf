@@ -9,7 +9,7 @@ output "service_name" {
 
 output "master_host" {
   description = "Locustマスターホスト"
-  value       = aws_ecs_service.master.name
+  value       = aws_lb.master.dns_name
 }
 
 output "locust_web_ui_url" {

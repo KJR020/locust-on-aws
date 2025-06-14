@@ -8,7 +8,7 @@
  */
 resource "aws_security_group" "worker" {
   name        = "${var.general_name}-worker-sg"
-  description = "Locustワーカーノードのセキュリティグループ"
+  description = "Security group for Locust worker nodes"
   vpc_id      = var.vpc_id
 
   egress {
@@ -16,6 +16,7 @@ resource "aws_security_group" "worker" {
     from_port   = 0
     to_port     = 0
     cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
   }
 
   tags = {

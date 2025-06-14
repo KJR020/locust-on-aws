@@ -61,3 +61,48 @@ variable "locust_file_path" {
   type        = string
   default     = "/mnt/locust/locustfile.py"
 }
+
+/**
+ * テスト対象のWebサーバーの変数
+ */
+variable "test_app_image" {
+  description = "テスト対象のWebサーバーのイメージ"
+  type        = string
+  default     = "nginx:latest"
+}
+
+variable "test_container_port" {
+  description = "テスト対象のWebサーバーのコンテナポート"
+  type        = number
+  default     = 3000
+}
+
+variable "test_app_count" {
+  description = "テスト対象のWebサーバーの初期タスク数"
+  type        = number
+  default     = 2
+}
+
+variable "test_min_capacity" {
+  description = "テスト対象のWebサーバーの最小キャパシティ"
+  type        = number
+  default     = 2
+}
+
+variable "test_max_capacity" {
+  description = "テスト対象のWebサーバーの最大キャパシティ"
+  type        = number
+  default     = 10
+}
+
+variable "test_cpu_target_value" {
+  description = "テスト対象のWebサーバーのCPU使用率のターゲット値（％）"
+  type        = number
+  default     = 60
+}
+
+variable "test_request_target_value" {
+  description = "テスト対象のWebサーバーのターゲットあたりのリクエスト数のターゲット値"
+  type        = number
+  default     = 1000
+}

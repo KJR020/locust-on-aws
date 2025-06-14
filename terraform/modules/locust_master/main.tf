@@ -8,7 +8,7 @@
  */
 resource "aws_security_group" "master" {
   name        = "${var.general_name}-master-sg"
-  description = "Locustマスターノードのセキュリティグループ"
+  description = "Security group for Locust master node"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -24,7 +24,7 @@ resource "aws_security_group" "master" {
     from_port   = 5557
     to_port     = 5558
     cidr_blocks = ["10.0.0.0/8"]
-    description = "Locustワーカー通信"
+    description = "Locust worker communication"
   }
 
   egress {
@@ -32,6 +32,7 @@ resource "aws_security_group" "master" {
     from_port   = 0
     to_port     = 0
     cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
   }
 
   tags = {
