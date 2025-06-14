@@ -19,6 +19,43 @@ module "network" {
 }
 
 /**
+ * ECRリポジトリの作成
+ */
+module "ecr" {
+  source = "./modules/ecr"
+
+  general_name = var.general_name
+  repositories = {
+    webserver = {
+      name                 = "test-webserver"
+      image_tag_mutability = "MUTABLE"
+      scan_on_push        = true
+      lifecycle_policy = {
+        untagged_expire_days = 1
+        tagged_expire_days   = 7
+        max_image_count     = 30
+      }
+    }
+    locust = {
+      name                 = "locust-custom"
+      image_tag_mutability = "MUTABLE"
+      scan_on_push        = true
+      lifecycle_policy = {
+        untagged_expire_days = 1
+        tagged_expire_days   = 7
+        max_image_count     = 20
+      }
+    }
+  }
+
+  tags = {
+    Project     = "locust-on-aws"
+    Environment = var.general_name
+    ManagedBy   = "terraform"
+  }
+}
+
+/**
  * ECSクラスターの作成
  */
 module "ecs_cluster" {
@@ -42,7 +79,7 @@ module "test_webserver" {
   ecs_cluster_name  = module.ecs_cluster.cluster_name
   fargate_cpu       = var.fargate_cpu
   fargate_memory    = var.fargate_memory
-  app_image         = var.test_app_image
+  app_image         = "${module.ecr.repository_urls["webserver"]}:latest"
   container_port    = var.test_container_port
   app_count         = var.test_app_count
   min_capacity      = var.test_min_capacity
@@ -63,7 +100,7 @@ module "locust_master" {
   ecs_cluster_id    = module.ecs_cluster.cluster_id
   fargate_cpu       = var.fargate_cpu
   fargate_memory    = var.fargate_memory
-  locust_image      = var.locust_image
+  locust_image      = "${module.ecr.repository_urls["locust"]}:latest"
   target_host       = "http://${module.test_webserver.alb_hostname}"
   locust_file_path  = var.locust_file_path
 }
@@ -80,7 +117,7 @@ module "locust_worker" {
   ecs_cluster_id    = module.ecs_cluster.cluster_id
   fargate_cpu       = var.fargate_cpu
   fargate_memory    = var.fargate_memory
-  locust_image      = var.locust_image
+  locust_image      = "${module.ecr.repository_urls["locust"]}:latest"
   master_host       = module.locust_master.master_host
   worker_count      = var.worker_count
   target_host       = "http://${module.test_webserver.alb_hostname}"
