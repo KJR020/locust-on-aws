@@ -67,18 +67,27 @@ Terraformコードは以下のモジュールで構成されています：
 
 ## アプリケーション構成
 
-### テスト対象Webサーバー (`/app/server.ts`)
+### テスト対象Webサーバー (`/apps/webserver/`)
 
-- **言語**: TypeScript
+- **言語**: TypeScript/JavaScript
 - **フレームワーク**: Express
+- **ファイル構成**:
+  - `server.ts`: TypeScript版のWebサーバー実装
+  - `server.js`: JavaScript版のWebサーバー実装
+  - `Dockerfile`: コンテナイメージ作成用
+  - `package.json`: 依存関係とスクリプト定義
 - **機能**:
   - ルートエンドポイント (`/`): ランダムな遅延を発生させる通常のエンドポイント
   - 高負荷エンドポイント (`/heavy`): より長い遅延とCPU負荷を発生させるエンドポイント
   - ヘルスチェックエンドポイント (`/health`): サーバーの状態を確認するエンドポイント
 
-### Locustテストスクリプト (`/locustfile.py`)
+### Locustテストスクリプト (`/apps/locust/`)
 
 - **言語**: Python
+- **ファイル構成**:
+  - `locustfile.py`: 負荷テストシナリオ定義
+  - `requirements.txt`: Python依存関係
+  - `Dockerfile`: カスタムLocustイメージ作成用
 - **機能**:
   - 通常リクエスト: ルートエンドポイントへのリクエスト（頻度：中）
   - 高負荷リクエスト: 高負荷エンドポイントへのリクエスト（頻度：低）

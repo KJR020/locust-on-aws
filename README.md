@@ -2,6 +2,23 @@
 
 このリポジトリはTerraformを使用して、AWS ECS上にLocust負荷テスト環境を構築するためのコードを提供します。
 
+## プロジェクト構造
+
+```
+locust-on-aws/
+├── apps/                    # アプリケーションディレクトリ
+│   ├── locust/              # Locustテスト関連
+│   │   ├── Dockerfile       # Locustのカスタムイメージ用
+│   │   ├── locustfile.py    # 負荷テストスクリプト
+│   │   └── requirements.txt # 依存関係
+│   └── webserver/           # テスト対象Webサーバー
+│       ├── Dockerfile       # Webサーバーのカスタムイメージ用
+│       ├── server.js        # サンプルWebアプリ（JavaScript版）
+│       ├── server.ts        # サンプルWebアプリ（TypeScript版）
+│       └── package.json     # 依存関係
+└── terraform/               # インフラ定義
+```
+
 ## 構成
 
 このプロジェクトは以下のリソースを作成します：
@@ -10,7 +27,8 @@
 - ECSクラスター
 - Locustマスターノード用のECSサービスとタスク定義
 - Locustワーカーノード用のECSサービスとタスク定義
-- ロードバランサー（Locust WebUIへのアクセス用）
+- テスト対象Webサーバー用のECSサービスとタスク定義
+- ロードバランサー（Locust WebUIとテスト対象Webサーバーへのアクセス用）
 
 ## 使用方法
 
