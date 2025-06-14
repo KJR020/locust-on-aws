@@ -2,11 +2,11 @@
   "name": "test-webserver",
   "version": "1.0.0",
   "description": "オートスケーリングテスト用のシンプルなWebサーバー",
-  "main": "server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "ts-node server.ts",
-    "build": "tsc",
-    "serve": "node dist/server.js"
+    "start": "node dist/server.js",
+    "dev": "ts-node server.ts",
+    "build": "tsc"
   },
   "dependencies": {
     "express": "^4.18.2"
