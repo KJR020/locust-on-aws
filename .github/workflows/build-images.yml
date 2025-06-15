@@ -1,0 +1,255 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Force build all images"
+        required: false
+        default: "false"
+        type: boolean
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      locust-changed: ${{ steps.changes.outputs.locust }}
+      webserver-changed: ${{ steps.changes.outputs.webserver }}
+      any-changed: ${{ steps.changes.outputs.locust == 'true' || steps.changes.outputs.webserver == 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            locust:
+              - 'apps/locust/**'
+            webserver:
+              - 'apps/webserver/**'
+
+      - name: Force build check
+        if: ${{ github.event.inputs.force_build == 'true' }}
+        run: |
+          echo "locust=true" >> $GITHUB_OUTPUT
+          echo "webserver=true" >> $GITHUB_OUTPUT
+        id: force
+
+      - name: Summary
+        run: |
+          echo "🔍 Change Detection Results:"
+          echo "- Locust changed: ${{ steps.changes.outputs.locust || steps.force.outputs.locust }}"
+          echo "- Webserver changed: ${{ steps.changes.outputs.webserver || steps.force.outputs.webserver }}"
+          echo "- Force build: ${{ github.event.inputs.force_build }}"
+
+  build-locust:
+    name: Build Locust Image
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.locust-changed == 'true' || github.event.inputs.force_build == 'true'
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE_NAME: locust-fargate-locust-custom
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/locust-fargate-cicd-ecr-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate image tags
+        id: meta
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}"
+
+          TAGS=""
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            TAGS="${IMAGE}:latest,${IMAGE}:commit-${GITHUB_SHA:0:7}"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" =~ ^refs/tags/v.* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            TAGS="${IMAGE}:${VERSION},${IMAGE}:latest"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TAGS="${IMAGE}:pr-${{ github.event.number }}"
+          else
+            TAGS="${IMAGE}:commit-${GITHUB_SHA:0:7}"
+          fi
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "🏷️ Generated tags: ${TAGS}"
+
+      - name: Build and push Locust image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/locust
+          file: ./apps/locust/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=Locust Custom
+            org.opencontainers.image.description=Custom Locust image for load testing
+            org.opencontainers.image.source=${{ github.repositoryUrl }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.date.outputs.date }}
+
+      - name: Image scan (security)
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.IMAGE_NAME }}:commit-${GITHUB_SHA:0:7}"
+          echo "🔍 Starting image scan for: ${IMAGE_URI}"
+          aws ecr start-image-scan --repository-name ${{ env.IMAGE_NAME }} --image-id imageTag=commit-${GITHUB_SHA:0:7} || true
+
+      - name: Build summary
+        run: |
+          echo "✅ Locust image build completed"
+          echo "📦 Image: ${{ env.IMAGE_NAME }}"
+          echo "🏷️ Tags: ${{ steps.meta.outputs.tags }}"
+
+  build-webserver:
+    name: Build Webserver Image
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.webserver-changed == 'true' || github.event.inputs.force_build == 'true'
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE_NAME: locust-fargate-test-webserver
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/locust-fargate-cicd-ecr-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate image tags
+        id: meta
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}"
+
+          TAGS=""
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            TAGS="${IMAGE}:latest,${IMAGE}:commit-${GITHUB_SHA:0:7}"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" =~ ^refs/tags/v.* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            TAGS="${IMAGE}:${VERSION},${IMAGE}:latest"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TAGS="${IMAGE}:pr-${{ github.event.number }}"
+          else
+            TAGS="${IMAGE}:commit-${GITHUB_SHA:0:7}"
+          fi
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "🏷️ Generated tags: ${TAGS}"
+
+      - name: Build and push Webserver image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/webserver
+          file: ./apps/webserver/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=Test Webserver
+            org.opencontainers.image.description=Node.js/TypeScript webserver for load testing
+            org.opencontainers.image.source=${{ github.repositoryUrl }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.date.outputs.date }}
+
+      - name: Image scan (security)
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.IMAGE_NAME }}:commit-${GITHUB_SHA:0:7}"
+          echo "🔍 Starting image scan for: ${IMAGE_URI}"
+          aws ecr start-image-scan --repository-name ${{ env.IMAGE_NAME }} --image-id imageTag=commit-${GITHUB_SHA:0:7} || true
+
+      - name: Build summary
+        run: |
+          echo "✅ Webserver image build completed"
+          echo "📦 Image: ${{ env.IMAGE_NAME }}"
+          echo "🏷️ Tags: ${{ steps.meta.outputs.tags }}"
+
+  deployment-info:
+    name: Deployment Information
+    runs-on: ubuntu-latest
+    needs: [build-locust, build-webserver]
+    if: always() && (needs.build-locust.result == 'success' || needs.build-webserver.result == 'success')
+    steps:
+      - name: Deployment guide
+        run: |
+          echo "🚀 **Deployment Guide**"
+          echo ""
+          echo "Images have been successfully pushed to ECR."
+          echo "To deploy the new images to ECS, run the following commands:"
+          echo ""
+          if [[ "${{ needs.build-locust.result }}" == "success" ]]; then
+            echo "**Locust services:**"
+            echo "\`\`\`bash"
+            echo "# Update Locust master service"
+            echo "aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-master-service --force-new-deployment"
+            echo ""
+            echo "# Update Locust worker service"
+            echo "aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-worker-service --force-new-deployment"
+            echo "\`\`\`"
+            echo ""
+          fi
+          if [[ "${{ needs.build-webserver.result }}" == "success" ]]; then
+            echo "**Webserver service:**"
+            echo "\`\`\`bash"
+            echo "# Update test webserver service"
+            echo "aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-target-test-service --force-new-deployment"
+            echo "\`\`\`"
+            echo ""
+          fi
+          echo "**Alternative: Using Terraform**"
+          echo "\`\`\`bash"
+          echo "cd terraform"
+          echo "terraform plan"
+          echo "terraform apply"
+          echo "\`\`\`"
