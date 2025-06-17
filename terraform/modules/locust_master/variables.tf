@@ -7,6 +7,18 @@ variable "general_name" {
   type        = string
 }
 
+variable "enable_https" {
+  description = "HTTPSを有効にするかどうか"
+  type        = bool
+  default     = false
+}
+
+variable "allowed_cidr_blocks" {
+  description = "WebUIへのアクセスを許可するCIDRブロックのリスト"
+  type        = list(string)
+  default     = ["0.0.0.0/0"] # デフォルトは全てのIPからのアクセスを許可
+}
+
 variable "vpc_id" {
   description = "VPC ID"
   type        = string

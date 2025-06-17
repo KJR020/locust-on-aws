@@ -134,7 +134,7 @@ check_ecr_repositories() {
 
 ecr_login() {
     log "ECRにログイン中..."
-    aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+    aws ecr get-login-password --region "$AWS_REGION" | docker --context desktop-linux login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
     success "ECRログイン完了"
 }
 
@@ -195,17 +195,17 @@ build_and_push_image() {
     local full_image_name="$registry/$image_name:$TAG"
     
     # ビルド
-    docker build -t "$full_image_name" "$context_dir"
+    docker --context desktop-linux build -t "$full_image_name" "$context_dir"
     
     # プッシュ
     log "$app_name イメージをプッシュ中..."
-    docker push "$full_image_name"
+    docker --context desktop-linux push "$full_image_name"
     
     # latest タグも更新（tagがlatestでない場合）
     if [ "$TAG" != "latest" ]; then
         local latest_image="$registry/$image_name:latest"
-        docker tag "$full_image_name" "$latest_image"
-        docker push "$latest_image"
+        docker --context desktop-linux tag "$full_image_name" "$latest_image"
+        docker --context desktop-linux push "$latest_image"
     fi
     
     success "$app_name イメージのビルド・プッシュ完了: $full_image_name"

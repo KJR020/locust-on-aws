@@ -13,6 +13,22 @@ resource "aws_security_group" "master" {
 
   ingress {
     protocol    = "tcp"
+    from_port   = 80
+    to_port     = 80
+    cidr_blocks = var.allowed_cidr_blocks
+    description = "HTTP for ALB"
+  }
+  
+  ingress {
+    protocol    = "tcp"
+    from_port   = 443
+    to_port     = 443
+    cidr_blocks = var.allowed_cidr_blocks
+    description = "HTTPS for ALB"
+  }
+
+  ingress {
+    protocol    = "tcp"
     from_port   = 8089
     to_port     = 8089
     cidr_blocks = ["0.0.0.0/0"]
@@ -174,12 +190,75 @@ resource "aws_lb_target_group" "master" {
 }
 
 /**
- * Locustマスター用のALBリスナー
+ * Locustマスター用の自己署名証明書
  */
-resource "aws_lb_listener" "master" {
+resource "tls_private_key" "locust" {
+  count     = var.enable_https ? 1 : 0
+  algorithm = "RSA"
+}
+
+resource "tls_self_signed_cert" "locust" {
+  count           = var.enable_https ? 1 : 0
+  private_key_pem = tls_private_key.locust[0].private_key_pem
+
+  subject {
+    common_name  = "locust.local"
+    organization = "Locust Load Testing"
+  }
+
+  validity_period_hours = 8760 # 1年
+
+  allowed_uses = [
+    "key_encipherment",
+    "digital_signature",
+    "server_auth",
+  ]
+}
+
+resource "aws_acm_certificate" "locust" {
+  count            = var.enable_https ? 1 : 0
+  private_key      = tls_private_key.locust[0].private_key_pem
+  certificate_body = tls_self_signed_cert.locust[0].cert_pem
+
+  tags = {
+    Name = "${var.general_name}-cert"
+  }
+}
+
+/**
+ * Locustマスター用のALBリスナー（HTTP）
+ */
+resource "aws_lb_listener" "master_http" {
   load_balancer_arn = aws_lb.master.arn
   port              = 80
   protocol          = "HTTP"
+
+  default_action {
+    type = var.enable_https ? "redirect" : "forward"
+    
+    dynamic "redirect" {
+      for_each = var.enable_https ? [1] : []
+      content {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+    
+    target_group_arn = var.enable_https ? null : aws_lb_target_group.master.arn
+  }
+}
+
+/**
+ * Locustマスター用のALBリスナー（HTTPS）
+ */
+resource "aws_lb_listener" "master_https" {
+  count             = var.enable_https ? 1 : 0
+  load_balancer_arn = aws_lb.master.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = aws_acm_certificate.locust[0].arn
 
   default_action {
     type             = "forward"
@@ -210,13 +289,16 @@ resource "aws_ecs_service" "master" {
   }
 
   depends_on = [
-    aws_lb_listener.master
+    aws_lb_listener.master_http,
+    aws_lb_listener.master_https
   ]
 
   tags = {
     Name = "${var.general_name}-master-service"
   }
 }
+
+
 
 /**
  * 現在のAWSリージョンの取得
