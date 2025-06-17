@@ -12,7 +12,7 @@ phases:
       - chmod +x ~/.docker/cli-plugins/docker-buildx
       - docker buildx version
       - docker buildx create --use
-      
+  
   pre_build:
     commands:
       # AWSリージョンの設定
@@ -33,7 +33,7 @@ phases:
       - echo "イメージタグを設定しています..."
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
       - IMAGE_TAG=${COMMIT_HASH:=latest}
-      
+  
   build:
     commands:
       # Locustイメージのビルド
@@ -45,7 +45,7 @@ phases:
       - echo "Webserverイメージをビルドしています..."
       - cd $CODEBUILD_SRC_DIR/apps/webserver
       - docker buildx build --platform linux/amd64 -t $WEBSERVER_REPOSITORY_URI:latest -t $WEBSERVER_REPOSITORY_URI:$IMAGE_TAG --push .
-      
+  
   post_build:
     commands:
       # イメージのダイジェスト情報を出力
@@ -53,7 +53,7 @@ phases:
       - echo "Locustイメージ: $LOCUST_REPOSITORY_URI:$IMAGE_TAG"
       - echo "Webserverイメージ: $WEBSERVER_REPOSITORY_URI:$IMAGE_TAG"
       
-      # ECSサービスの更新（オプション）
+      # ECSサービスの更新
       - echo "ECSサービスを更新しています..."
       - aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-master-service --force-new-deployment
       - aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-worker-service --force-new-deployment
