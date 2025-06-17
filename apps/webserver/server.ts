@@ -3,131 +3,136 @@
  * オートスケーリングのテスト対象となるシンプルなWebアプリケーション
  */
 
-import express, { Request, Response } from 'express';
-import { cpus } from 'os';
+import express, { Request, Response } from "express";
+import { cpus } from "os";
 
 /**
  * サーバー設定の型定義
  */
-type サーバー設定 = {
-  readonly ポート番号: number;
-  readonly 遅延最小値: number;
-  readonly 遅延最大値: number;
+type ServerConfig = {
+  readonly port: number;
+  readonly minDelay: number;
+  readonly maxDelay: number;
 };
 
 /**
  * レスポンスの型定義
  */
-type レスポンス = {
-  readonly メッセージ: string;
-  readonly タイムスタンプ: string;
-  readonly 処理時間: number;
-  readonly サーバー情報: {
-    readonly ホスト名: string;
-    readonly CPU数: number;
+type ServerResponse = {
+  readonly message: string;
+  readonly timestamp: string;
+  readonly processingTime: number;
+  readonly serverInfo: {
+    readonly hostname: string;
+    readonly cpuCount: number;
   };
 };
 
 /**
  * サーバー設定のデフォルト値
  */
-const デフォルト設定: サーバー設定 = {
-  ポート番号: parseInt(process.env.PORT || '3000', 10),
-  遅延最小値: 10,
-  遅延最大値: 100
+const DEFAULT_CONFIG: ServerConfig = {
+  port: parseInt(process.env.PORT || "3000", 10),
+  minDelay: 10,
+  maxDelay: 100,
 };
 
 /**
  * ランダムな遅延時間を生成する関数
- * @param 最小値 - 最小遅延時間（ミリ秒）
- * @param 最大値 - 最大遅延時間（ミリ秒）
+ * @param min - 最小遅延時間（ミリ秒）
+ * @param max - 最大遅延時間（ミリ秒）
  * @returns ランダムな遅延時間（ミリ秒）
  */
-const ランダム遅延生成 = (最小値: number, 最大値: number): number => {
-  return Math.floor(Math.random() * (最大値 - 最小値 + 1)) + 最小値;
+const generateRandomDelay = (min: number, max: number): number => {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 };
 
 /**
  * 指定された時間だけ処理を遅延させる関数
- * @param ミリ秒 - 遅延時間（ミリ秒）
+ * @param ms - 遅延時間（ミリ秒）
  * @returns Promiseオブジェクト
  */
-const 遅延処理 = (ミリ秒: number): Promise<void> => {
-  return new Promise(resolve => setTimeout(resolve, ミリ秒));
+const delay = (ms: number): Promise<void> => {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 };
 
 /**
  * ホスト名を取得する関数
  * @returns ホスト名
  */
-const ホスト名取得 = (): string => {
-  return process.env.HOSTNAME || 'localhost';
+const getHostname = (): string => {
+  return process.env.HOSTNAME || "localhost";
 };
 
 // Expressアプリケーションの作成
-const アプリ = express();
+const app = express();
 
 // JSONミドルウェアの設定
-アプリ.use(express.json());
+app.use(express.json());
 
 // ルートエンドポイント
-アプリ.get('/', async (_req: Request, res: Response): Promise<void> => {
-  const 開始時間 = Date.now();
-  
+app.get("/", async (_req: Request, res: Response): Promise<void> => {
+  const startTime = Date.now();
+
   // ランダムな遅延を発生させる
-  const 遅延時間 = ランダム遅延生成(デフォルト設定.遅延最小値, デフォルト設定.遅延最大値);
-  await 遅延処理(遅延時間);
-  
-  const 処理時間 = Date.now() - 開始時間;
-  
-  const レスポンスデータ: レスポンス = {
-    メッセージ: 'オートスケーリングテスト用Webサーバーです',
-    タイムスタンプ: new Date().toISOString(),
-    処理時間: 処理時間,
-    サーバー情報: {
-      ホスト名: ホスト名取得(),
-      CPU数: cpus().length
-    }
+  const delayTime = generateRandomDelay(
+    DEFAULT_CONFIG.minDelay,
+    DEFAULT_CONFIG.maxDelay
+  );
+  await delay(delayTime);
+
+  const processingTime = Date.now() - startTime;
+
+  const responseData: ServerResponse = {
+    message: "オートスケーリングテスト用Webサーバーです",
+    timestamp: new Date().toISOString(),
+    processingTime: processingTime,
+    serverInfo: {
+      hostname: getHostname(),
+      cpuCount: cpus().length,
+    },
   };
-  
-  res.json(レスポンスデータ);
+
+  res.json(responseData);
 });
 
 // 高負荷エンドポイント
-アプリ.get('/heavy', async (_req: Request, res: Response): Promise<void> => {
-  const 開始時間 = Date.now();
-  
+app.get("/heavy", async (_req: Request, res: Response): Promise<void> => {
+  const startTime = Date.now();
+
   // より長い遅延を発生させる
-  const 遅延時間 = ランダム遅延生成(500, 2000);
-  await 遅延処理(遅延時間);
-  
+  const delayTime = generateRandomDelay(500, 2000);
+  await delay(delayTime);
+
   // CPUに負荷をかける
-  let 計算結果 = 0;
+  let calculationResult = 0;
   for (let i = 0; i < 1000000; i++) {
-    計算結果 += Math.sqrt(i);
+    calculationResult += Math.sqrt(i);
   }
-  
-  const 処理時間 = Date.now() - 開始時間;
-  
-  const レスポンスデータ: レスポンス = {
-    メッセージ: '高負荷処理を実行しました',
-    タイムスタンプ: new Date().toISOString(),
-    処理時間: 処理時間,
-    サーバー情報: {
-      ホスト名: ホスト名取得(),
-      CPU数: cpus().length
-    }
+
+  const processingTime = Date.now() - startTime;
+
+  const responseData: ServerResponse = {
+    message: "高負荷処理を実行しました",
+    timestamp: new Date().toISOString(),
+    processingTime: processingTime,
+    serverInfo: {
+      hostname: getHostname(),
+      cpuCount: cpus().length,
+    },
   };
-  
-  res.json(レスポンスデータ);
+
+  res.json(responseData);
 });
 
 // ヘルスチェックエンドポイント
-アプリ.get('/health', (_req: Request, res: Response): void => {
-  res.status(200).json({ 状態: '正常' });
+app.get("/health", (_req: Request, res: Response): void => {
+  res.status(200).json({ status: "正常" });
 });
 
 // サーバーの起動
-アプリ.listen(デフォルト設定.ポート番号, () => {
-  console.log(`サーバーが起動しました: http://localhost:${デフォルト設定.ポート番号}`);
+app.listen(DEFAULT_CONFIG.port, () => {
+  console.log(
+    `サーバーが起動しました: http://localhost:${DEFAULT_CONFIG.port}`
+  );
 });
