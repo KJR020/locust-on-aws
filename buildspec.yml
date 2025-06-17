@@ -15,7 +15,7 @@ phases:
   pre_build:
     commands:
       - echo "AWSリージョンを設定しています..."
-      - AWS_REGION=$(aws configure get region)
+      - AWS_REGION=${AWS_DEFAULT_REGION:-ap-northeast-1}
       - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
       - echo "ECRリポジトリを設定しています..."
       - LOCUST_REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/locust-fargate-locust-custom
