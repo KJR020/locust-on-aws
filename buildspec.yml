@@ -5,12 +5,16 @@ phases:
     runtime-versions:
       python: 3.9
     commands:
+      - echo "必要なパッケージをインストールしています..."
+      - apt-get update
+      - apt-get install -y docker.io
       - echo "BuildXをインストールしています..."
       - mkdir -p ~/.docker/cli-plugins
       - curl -SL https://github.com/docker/buildx/releases/download/v0.10.4/buildx-v0.10.4.linux-amd64 -o ~/.docker/cli-plugins/docker-buildx
       - chmod +x ~/.docker/cli-plugins/docker-buildx
       - docker buildx version
       - docker buildx create --use
+      - systemctl start docker || true
 
   pre_build:
     commands:
@@ -21,7 +25,7 @@ phases:
       - LOCUST_REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/locust-fargate-locust-custom
       - WEBSERVER_REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/locust-fargate-test-webserver
       - echo "ECRにログインしています..."
-      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com || echo "ECRログインに失敗しましたが続行します"
       - echo "イメージタグを設定しています..."
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
       - IMAGE_TAG=${COMMIT_HASH:=latest}
