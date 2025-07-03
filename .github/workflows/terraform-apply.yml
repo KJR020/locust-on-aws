@@ -9,11 +9,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
-
 env:
   AWS_REGION: ap-northeast-1
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
@@ -70,9 +65,11 @@ jobs:
           aqua_version: v2.40.0
 
       - name: AWS認証情報の設定
+        # アクセスキーとシークレットキーを使用したAWS認証設定
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/locust-fargate-cicd-terraform-role
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: トークン生成
@@ -108,31 +105,33 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: AWS認証情報の設定
+        # アクセスキーとシークレットキーを使用したAWS認証設定
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/locust-fargate-cicd-terraform-role
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: ECSサービスの更新
         run: |
           echo "🔄 ECSサービスを更新しています..."
-          
+
           # Locustマスターサービスの更新
           aws ecs update-service \
             --cluster locust-fargate-cluster \
             --service locust-fargate-master-service \
             --force-new-deployment
-          
+
           # Locustワーカーサービスの更新
           aws ecs update-service \
             --cluster locust-fargate-cluster \
             --service locust-fargate-worker-service \
             --force-new-deployment
-          
+
           # テスト対象Webサーバーサービスの更新
           aws ecs update-service \
             --cluster locust-fargate-cluster \
             --service locust-fargate-target-test-service \
             --force-new-deployment
-          
+
           echo "✅ すべてのサービスの更新を開始しました"

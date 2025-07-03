@@ -1,3 +1,4 @@
+# DockerイメージのビルドとECRへのプッシュを行うワークフロー
 name: Build and Push Docker Images
 
 on:
@@ -14,21 +15,22 @@ on:
       force_build:
         description: "Force build all images"
         required: false
-        default: "false"
+        default: false
         type: boolean
 
+# 環境変数の設定
 env:
-  AWS_REGION: ap-northeast-1
-  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_REGION: ap-northeast-1 # AWSリージョン（東京）
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }} # AWSアカウントID（シークレット）
 
 jobs:
+  # コードの変更を検出するジョブ
   detect-changes:
     name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
       locust-changed: ${{ steps.changes.outputs.locust }}
       webserver-changed: ${{ steps.changes.outputs.webserver }}
-      any-changed: ${{ steps.changes.outputs.locust == 'true' || steps.changes.outputs.webserver == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -59,14 +61,13 @@ jobs:
           echo "- Webserver changed: ${{ steps.changes.outputs.webserver || steps.force.outputs.webserver }}"
           echo "- Force build: ${{ github.event.inputs.force_build }}"
 
+  # Locustイメージをビルドするジョブ
   build-locust:
-    name: Build Locust Image
+    name: Build Locust Image # 負荷テストツールLocustのイメージビルド
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.locust-changed == 'true' || github.event.inputs.force_build == 'true'
-    permissions:
-      id-token: write
-      contents: read
+    # アクセスキーとシークレットキーを使用するため、OIDCの権限設定は不要
     env:
       IMAGE_NAME: locust-fargate-locust-custom
     steps:
@@ -74,9 +75,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
+        # アクセスキーとシークレットキーを使用したAWS認証設定
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/locust-fargate-cicd-terraform-role
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -107,6 +110,7 @@ jobs:
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
           echo "🏷️ Generated tags: ${TAGS}"
 
+      # Locustイメージのビルドとプッシュ
       - name: Build and push Locust image
         uses: docker/build-push-action@v5
         with:
@@ -137,14 +141,13 @@ jobs:
           echo "📦 Image: ${{ env.IMAGE_NAME }}"
           echo "🏷️ Tags: ${{ steps.meta.outputs.tags }}"
 
+  # テスト対象のウェブサーバーイメージをビルドするジョブ
   build-webserver:
-    name: Build Webserver Image
+    name: Build Webserver Image # テスト対象のウェブサーバーイメージビルド
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.webserver-changed == 'true' || github.event.inputs.force_build == 'true'
-    permissions:
-      id-token: write
-      contents: read
+    # アクセスキーとシークレットキーを使用するため、OIDCの権限設定は不要
     env:
       IMAGE_NAME: locust-fargate-test-webserver
     steps:
@@ -152,9 +155,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
+        # アクセスキーとシークレットキーを使用したAWS認証設定
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/locust-fargate-cicd-terraform-role
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -185,6 +190,7 @@ jobs:
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
           echo "🏷️ Generated tags: ${TAGS}"
 
+      # ウェブサーバーイメージのビルドとプッシュ
       - name: Build and push Webserver image
         uses: docker/build-push-action@v5
         with:
@@ -214,42 +220,3 @@ jobs:
           echo "✅ Webserver image build completed"
           echo "📦 Image: ${{ env.IMAGE_NAME }}"
           echo "🏷️ Tags: ${{ steps.meta.outputs.tags }}"
-
-  deployment-info:
-    name: Deployment Information
-    runs-on: ubuntu-latest
-    needs: [build-locust, build-webserver]
-    if: always() && (needs.build-locust.result == 'success' || needs.build-webserver.result == 'success')
-    steps:
-      - name: Deployment guide
-        run: |
-          echo "🚀 **Deployment Guide**"
-          echo ""
-          echo "Images have been successfully pushed to ECR."
-          echo "To deploy the new images to ECS, run the following commands:"
-          echo ""
-          if [[ "${{ needs.build-locust.result }}" == "success" ]]; then
-            echo "**Locust services:**"
-            echo "\`\`\`bash"
-            echo "# Update Locust master service"
-            echo "aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-master-service --force-new-deployment"
-            echo ""
-            echo "# Update Locust worker service"
-            echo "aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-worker-service --force-new-deployment"
-            echo "\`\`\`"
-            echo ""
-          fi
-          if [[ "${{ needs.build-webserver.result }}" == "success" ]]; then
-            echo "**Webserver service:**"
-            echo "\`\`\`bash"
-            echo "# Update test webserver service"
-            echo "aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-target-test-service --force-new-deployment"
-            echo "\`\`\`"
-            echo ""
-          fi
-          echo "**Alternative: Using Terraform**"
-          echo "\`\`\`bash"
-          echo "cd terraform"
-          echo "terraform plan"
-          echo "terraform apply"
-          echo "\`\`\`"
