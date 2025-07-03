@@ -84,20 +84,42 @@ check_dependencies() {
     
     local missing_deps=()
     
-    if ! command -v aws &> /dev/null; then
-        missing_deps+=("aws-cli")
-    fi
-    
-    if ! command -v docker &> /dev/null; then
-        missing_deps+=("docker")
-    fi
-    
-    if ! command -v git &> /dev/null; then
-        missing_deps+=("git")
+    # Aquaが利用可能かチェック
+    if command -v aqua &> /dev/null; then
+        log "Aquaを使用してツールを確認します"
+        
+        # Aqua経由でツールが利用可能かチェック
+        if ! aqua which aws &> /dev/null; then
+            missing_deps+=("aws-cli (via aqua)")
+        fi
+        
+        if ! aqua which docker &> /dev/null; then
+            missing_deps+=("docker (via aqua)")
+        fi
+        
+        if ! aqua which git &> /dev/null && ! command -v git &> /dev/null; then
+            missing_deps+=("git")
+        fi
+    else
+        # 従来の方法でチェック
+        if ! command -v aws &> /dev/null; then
+            missing_deps+=("aws-cli")
+        fi
+        
+        if ! command -v docker &> /dev/null; then
+            missing_deps+=("docker")
+        fi
+        
+        if ! command -v git &> /dev/null; then
+            missing_deps+=("git")
+        fi
     fi
     
     if [ ${#missing_deps[@]} -ne 0 ]; then
         error "以下の依存関係が不足しています: ${missing_deps[*]}"
+        if command -v aqua &> /dev/null; then
+            log "Aquaでツールをインストールするには: aqua install"
+        fi
         exit 1
     fi
     
