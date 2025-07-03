@@ -1,0 +1,138 @@
+name: Terraform Apply
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+jobs:
+  setup:
+    name: セットアップ
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      targets: ${{ steps.list-targets.outputs.targets }}
+    steps:
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: ツールのインストール
+        uses: aquaproj/aqua-installer@v3.1.0
+        with:
+          aqua_version: v2.40.0
+
+      - name: 変更されたディレクトリの取得
+        uses: suzuki-shunsuke/tfaction/list-targets@v1.14.0
+        id: list-targets
+
+  apply:
+    name: 適用 (${{ matrix.target.target }})
+    needs: setup
+    if: join(fromJSON(needs.setup.outputs.targets), '') != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      TFACTION_TARGET: ${{ matrix.target.target }}
+      TFACTION_WORKING_DIR: ${{ matrix.target.working_directory }}
+      TFACTION_JOB_TYPE: ${{ matrix.target.job_type }}
+      TFACTION_IS_APPLY: true
+    strategy:
+      fail-fast: true
+      matrix:
+        target: ${{ fromJSON(needs.setup.outputs.targets) }}
+    steps:
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: ツールのインストール
+        uses: aquaproj/aqua-installer@v3.1.0
+        with:
+          aqua_version: v2.40.0
+
+      - name: AWS認証情報の設定
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/locust-fargate-cicd-terraform-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: トークン生成
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.TF_GITHUB_APP_ID }}
+          private-key: ${{ secrets.TF_GITHUB_APP_PRIVATE_KEY }}
+
+      - name: セットアップ
+        uses: suzuki-shunsuke/tfaction/setup@v1.14.0
+        with:
+          github_token: ${{ steps.generate_token.outputs.token }}
+        env:
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
+
+      - name: Terraform適用
+        uses: suzuki-shunsuke/tfaction/apply@v1.14.0
+        with:
+          github_token: ${{ steps.generate_token.outputs.token }}
+
+      - name: フォローアップPR作成
+        uses: suzuki-shunsuke/tfaction/create-follow-up-pr@v1.14.0
+        if: failure()
+        with:
+          github_token: ${{ steps.generate_token.outputs.token }}
+
+  update-services:
+    name: ECSサービス更新
+    needs: apply
+    if: success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: AWS認証情報の設定
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/locust-fargate-cicd-terraform-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ECSサービスの更新
+        run: |
+          echo "🔄 ECSサービスを更新しています..."
+          
+          # Locustマスターサービスの更新
+          aws ecs update-service \
+            --cluster locust-fargate-cluster \
+            --service locust-fargate-master-service \
+            --force-new-deployment
+          
+          # Locustワーカーサービスの更新
+          aws ecs update-service \
+            --cluster locust-fargate-cluster \
+            --service locust-fargate-worker-service \
+            --force-new-deployment
+          
+          # テスト対象Webサーバーサービスの更新
+          aws ecs update-service \
+            --cluster locust-fargate-cluster \
+            --service locust-fargate-target-test-service \
+            --force-new-deployment
+          
+          echo "✅ すべてのサービスの更新を開始しました"
