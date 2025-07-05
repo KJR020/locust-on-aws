@@ -18,7 +18,7 @@ resource "aws_security_group" "master" {
     cidr_blocks = var.allowed_cidr_blocks
     description = "HTTP for ALB"
   }
-  
+
   ingress {
     protocol    = "tcp"
     from_port   = 443
@@ -101,7 +101,7 @@ resource "aws_ecs_task_definition" "master" {
       image     = var.locust_image
       essential = true
       command   = ["--master", "-f", var.locust_file_path, "--host", var.target_host]
-      
+
       portMappings = [
         {
           containerPort = 8089
@@ -119,7 +119,7 @@ resource "aws_ecs_task_definition" "master" {
           protocol      = "tcp"
         }
       ]
-      
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -235,7 +235,7 @@ resource "aws_lb_listener" "master_http" {
 
   default_action {
     type = var.enable_https ? "redirect" : "forward"
-    
+
     dynamic "redirect" {
       for_each = var.enable_https ? [1] : []
       content {
@@ -244,7 +244,7 @@ resource "aws_lb_listener" "master_http" {
         status_code = "HTTP_301"
       }
     }
-    
+
     target_group_arn = var.enable_https ? null : aws_lb_target_group.master.arn
   }
 }
@@ -288,6 +288,10 @@ resource "aws_ecs_service" "master" {
     container_port   = 8089
   }
 
+  service_registries {
+    registry_arn = aws_service_discovery_service.master.arn
+  }
+
   depends_on = [
     aws_lb_listener.master_http,
     aws_lb_listener.master_https
@@ -298,7 +302,27 @@ resource "aws_ecs_service" "master" {
   }
 }
 
+resource "aws_service_discovery_private_dns_namespace" "locust" {
+  name        = "locust.internal"
+  description = "Locust service discovery namespace"
+  vpc         = var.vpc_id
+}
 
+resource "aws_service_discovery_service" "master" {
+  name = "master"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.locust.id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+
+}
 
 /**
  * 現在のAWSリージョンの取得

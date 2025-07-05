@@ -124,7 +124,7 @@ module "locust_worker" {
   fargate_cpu        = var.fargate_cpu
   fargate_memory     = var.fargate_memory
   locust_image       = "${module.ecr.repository_urls["locust"]}:latest"
-  master_host        = module.locust_master.master_host
+  master_host        = "master.locust.internal"
   worker_count       = var.worker_count
   target_host        = "http://${module.test_webserver.alb_hostname}"
   locust_file_path   = var.locust_file_path

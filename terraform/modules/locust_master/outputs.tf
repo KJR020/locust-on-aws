@@ -16,3 +16,8 @@ output "locust_web_ui_url" {
   description = "Locust Web UIのURL"
   value       = "http://${aws_lb.master.dns_name}"
 }
+
+output "service_discovery_name" {
+  description = "Locustマスターのサービスディスカバリー名"
+  value       = "master.locust.internal"
+}
