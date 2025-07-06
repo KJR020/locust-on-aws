@@ -1,0 +1,27 @@
+---
+# Aqua Policy Configuration
+# This file controls which packages can be installed by aqua
+
+policies:
+  - type: allow
+    packages:
+      # Core infrastructure tools
+      - hashicorp/terraform
+      - aquaproj/aqua-registry/terraform-docs
+      - aquaproj/aqua-registry/tflint
+      - aquaproj/aqua-registry/tfsec
+      
+      # AWS tools
+      - aws/aws-cli
+      
+      # Docker
+      - docker/cli
+      
+      # Utilities
+      - aquaproj/aqua-registry/jq
+      - aquaproj/aqua-registry/yq
+      - cli/cli
+      
+      # Linting tools
+      - aquaproj/aqua-registry/hadolint
+      - aquaproj/aqua-registry/shellcheck

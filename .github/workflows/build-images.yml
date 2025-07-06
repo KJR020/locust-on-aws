@@ -1,0 +1,222 @@
+# DockerイメージのビルドとECRへのプッシュを行うワークフロー
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Force build all images"
+        required: false
+        default: false
+        type: boolean
+
+# 環境変数の設定
+env:
+  AWS_REGION: ap-northeast-1 # AWSリージョン（東京）
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }} # AWSアカウントID（シークレット）
+
+jobs:
+  # コードの変更を検出するジョブ
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      locust-changed: ${{ steps.changes.outputs.locust }}
+      webserver-changed: ${{ steps.changes.outputs.webserver }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            locust:
+              - 'apps/locust/**'
+            webserver:
+              - 'apps/webserver/**'
+
+      - name: Force build check
+        if: ${{ github.event.inputs.force_build == 'true' }}
+        run: |
+          echo "locust=true" >> $GITHUB_OUTPUT
+          echo "webserver=true" >> $GITHUB_OUTPUT
+        id: force
+
+      - name: Summary
+        run: |
+          echo "🔍 Change Detection Results:"
+          echo "- Locust changed: ${{ steps.changes.outputs.locust || steps.force.outputs.locust }}"
+          echo "- Webserver changed: ${{ steps.changes.outputs.webserver || steps.force.outputs.webserver }}"
+          echo "- Force build: ${{ github.event.inputs.force_build }}"
+
+  # Locustイメージをビルドするジョブ
+  build-locust:
+    name: Build Locust Image # 負荷テストツールLocustのイメージビルド
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.locust-changed == 'true' || github.event.inputs.force_build == 'true'
+    # アクセスキーとシークレットキーを使用するため、OIDCの権限設定は不要
+    env:
+      IMAGE_NAME: locust-fargate-locust-custom
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        # アクセスキーとシークレットキーを使用したAWS認証設定
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate image tags
+        id: meta
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}"
+
+          TAGS=""
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            TAGS="${IMAGE}:latest,${IMAGE}:commit-${GITHUB_SHA:0:7}"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" =~ ^refs/tags/v.* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            TAGS="${IMAGE}:${VERSION},${IMAGE}:latest"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TAGS="${IMAGE}:pr-${{ github.event.number }}"
+          else
+            TAGS="${IMAGE}:commit-${GITHUB_SHA:0:7}"
+          fi
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "🏷️ Generated tags: ${TAGS}"
+
+      # Locustイメージのビルドとプッシュ
+      - name: Build and push Locust image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/locust
+          file: ./apps/locust/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=Locust Custom
+            org.opencontainers.image.description=Custom Locust image for load testing
+            org.opencontainers.image.source=${{ github.repositoryUrl }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.date.outputs.date }}
+
+      - name: Image scan (security)
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.IMAGE_NAME }}:commit-${GITHUB_SHA:0:7}"
+          echo "🔍 Starting image scan for: ${IMAGE_URI}"
+          aws ecr start-image-scan --repository-name ${{ env.IMAGE_NAME }} --image-id imageTag=commit-${GITHUB_SHA:0:7} || true
+
+      - name: Build summary
+        run: |
+          echo "✅ Locust image build completed"
+          echo "📦 Image: ${{ env.IMAGE_NAME }}"
+          echo "🏷️ Tags: ${{ steps.meta.outputs.tags }}"
+
+  # テスト対象のウェブサーバーイメージをビルドするジョブ
+  build-webserver:
+    name: Build Webserver Image # テスト対象のウェブサーバーイメージビルド
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.webserver-changed == 'true' || github.event.inputs.force_build == 'true'
+    # アクセスキーとシークレットキーを使用するため、OIDCの権限設定は不要
+    env:
+      IMAGE_NAME: locust-fargate-test-webserver
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        # アクセスキーとシークレットキーを使用したAWS認証設定
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate image tags
+        id: meta
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}"
+
+          TAGS=""
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            TAGS="${IMAGE}:latest,${IMAGE}:commit-${GITHUB_SHA:0:7}"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" =~ ^refs/tags/v.* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            TAGS="${IMAGE}:${VERSION},${IMAGE}:latest"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TAGS="${IMAGE}:pr-${{ github.event.number }}"
+          else
+            TAGS="${IMAGE}:commit-${GITHUB_SHA:0:7}"
+          fi
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "🏷️ Generated tags: ${TAGS}"
+
+      # ウェブサーバーイメージのビルドとプッシュ
+      - name: Build and push Webserver image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/webserver
+          file: ./apps/webserver/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=Test Webserver
+            org.opencontainers.image.description=Node.js/TypeScript webserver for load testing
+            org.opencontainers.image.source=${{ github.repositoryUrl }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.date.outputs.date }}
+
+      - name: Image scan (security)
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.IMAGE_NAME }}:commit-${GITHUB_SHA:0:7}"
+          echo "🔍 Starting image scan for: ${IMAGE_URI}"
+          aws ecr start-image-scan --repository-name ${{ env.IMAGE_NAME }} --image-id imageTag=commit-${GITHUB_SHA:0:7} || true
+
+      - name: Build summary
+        run: |
+          echo "✅ Webserver image build completed"
+          echo "📦 Image: ${{ env.IMAGE_NAME }}"
+          echo "🏷️ Tags: ${{ steps.meta.outputs.tags }}"

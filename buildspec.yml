@@ -1,0 +1,65 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.9
+    commands:
+      - echo "必要なパッケージをインストールしています..."
+      - apt-get update
+      - apt-get install -y docker.io
+      - echo "BuildXをインストールしています..."
+      - mkdir -p ~/.docker/cli-plugins
+      - curl -SL https://github.com/docker/buildx/releases/download/v0.10.4/buildx-v0.10.4.linux-amd64 -o ~/.docker/cli-plugins/docker-buildx
+      - chmod +x ~/.docker/cli-plugins/docker-buildx
+      - docker buildx version
+      - docker buildx create --use
+      - systemctl start docker || true
+
+  pre_build:
+    commands:
+      - echo "AWSリージョンを設定しています..."
+      - AWS_REGION=${AWS_DEFAULT_REGION:-ap-northeast-1}
+      - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - echo "ECRリポジトリを設定しています..."
+      - LOCUST_REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/locust-fargate-locust-custom
+      - WEBSERVER_REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/locust-fargate-test-webserver
+      - echo "ECRにログインしています..."
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com || echo "ECRログインに失敗しましたが続行します"
+      - echo "イメージタグを設定しています..."
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+
+  build:
+    commands:
+      - echo "Locustイメージをビルドしています..."
+      - cd $CODEBUILD_SRC_DIR/apps/locust
+      - docker buildx build --platform linux/amd64 -t $LOCUST_REPOSITORY_URI:latest -t $LOCUST_REPOSITORY_URI:$IMAGE_TAG --push .
+      - echo "Webserverイメージをビルドしています..."
+      - cd $CODEBUILD_SRC_DIR/apps/webserver
+      - docker buildx build --platform linux/amd64 -t $WEBSERVER_REPOSITORY_URI:latest -t $WEBSERVER_REPOSITORY_URI:$IMAGE_TAG --push .
+
+  post_build:
+    commands:
+      - echo "イメージのダイジェスト情報を出力しています..."
+      - echo "Locustイメージ $LOCUST_REPOSITORY_URI:$IMAGE_TAG"
+      - echo "Webserverイメージ $WEBSERVER_REPOSITORY_URI:$IMAGE_TAG"
+      - echo "ECSサービスを更新しています..."
+      - aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-master-service --force-new-deployment
+      - aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-worker-service --force-new-deployment
+      - aws ecs update-service --cluster locust-fargate-cluster --service locust-fargate-target-test-service --force-new-deployment
+
+artifacts:
+  files:
+    - appspec.yml
+    - taskdef.json
+    - buildspec.yml
+    - terraform/**/*
+    - scripts/**/*
+    - apps/**/*
+  discard-paths: no
+
+cache:
+  paths:
+    - "/root/.m2/**/*"
+    - "/root/.gradle/caches/**/*"
